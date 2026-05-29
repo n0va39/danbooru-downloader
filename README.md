@@ -33,6 +33,30 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 uv sync
 ```
 
+### 다운로드 방법
+
+Git을 사용할 수 있으면 저장소를 클론한다.
+
+```bat
+git clone https://github.com/n0va39/danbooru-downloader.git
+cd danbooru-downloader
+uv sync
+run_gui.vbs
+```
+
+Git을 모르면 압축파일로 받아도 된다.
+
+1. GitHub 저장소 페이지에서 `Code` 버튼을 누른다.
+2. `Download ZIP`을 누른다.
+3. ZIP 파일을 원하는 위치에 압축 해제한다.
+4. 압축 해제한 폴더에서 우클릭 후 터미널을 연다.
+5. 아래 명령어를 실행한다.
+
+```bat
+uv sync
+run_gui.vbs
+```
+
 ### 실행
 
 콘솔 없이 실행:
@@ -72,10 +96,6 @@ create_shortcut.bat
 - `comic`, `chibi` 태그가 있으면 제외
 - `cat_ears` 또는 `dog_ears` 중 하나는 포함해야 함
 
-### 설정 파일
-
-로컬 설정은 `config.json`에 저장된다. Danbooru API Key가 들어갈 수 있으므로 Git에는 올리지 않는다.
-
 ## English
 
 ### Overview
@@ -109,6 +129,31 @@ Install dependencies:
 
 ```bat
 uv sync
+```
+
+### Download
+
+If Git is installed, clone the repository.
+
+```bat
+git clone https://github.com/n0va39/danbooru-downloader.git
+cd danbooru-downloader
+uv sync
+run_gui.vbs
+```
+
+If you do not use Git, download the ZIP file.
+
+1. Open the GitHub repository page.
+2. Click `Code`.
+3. Click `Download ZIP`.
+4. Extract the ZIP file.
+5. Open a terminal in the extracted folder.
+6. Run these commands.
+
+```bat
+uv sync
+run_gui.vbs
 ```
 
 ### Run
@@ -149,7 +194,3 @@ Meaning:
 
 - Exclude posts that contain `comic` or `chibi`
 - Require either `cat_ears` or `dog_ears`
-
-### Config
-
-Local settings are saved in `config.json`. It may contain a Danbooru API key, so it is ignored by Git.
