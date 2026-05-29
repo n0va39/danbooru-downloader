@@ -20,6 +20,105 @@ CONFIG_FILE = "config.json"
 DANBOORU_API = "https://danbooru.donmai.us"
 APP_UA = "danbooru-clean-downloader/1.0"
 
+LANG_LABELS = {"ko": "한국어", "en": "English"}
+LABEL_LANGS = {v: k for k, v in LANG_LABELS.items()}
+
+NAMING_LABELS = {
+    "ko": {"id": "ID만", "tags_id": "태그+ID", "original": "원본 이름"},
+    "en": {"id": "ID only", "tags_id": "Tags + ID", "original": "Original name"},
+}
+NAMING_VALUES = {
+    lang: {label: key for key, label in labels.items()}
+    for lang, labels in NAMING_LABELS.items()
+}
+
+TEXT = {
+    "ko": {
+        "title": "Danbooru Downloader",
+        "search_settings": "검색 설정",
+        "include_tags": "포함 태그:",
+        "count": "개수 조회",
+        "secondary_filter": "2차 필터:",
+        "ratings": "레이팅:",
+        "download_limit": "다운로드 수:",
+        "delay": "지연 시간(초):",
+        "naming": "파일명 규칙:",
+        "save_settings": "저장 설정",
+        "save_path": "저장 경로:",
+        "browse": "선택",
+        "account": "Danbooru 계정 (선택):",
+        "save_txt": "태그 .txt 파일 동시 저장 (Lora 학습용)",
+        "replace_underscores": "태그 저장 시 _ 를 공백으로 변환",
+        "tag_categories": "저장할 태그 항목:",
+        "download": "다운로드",
+        "downloading": "다운로드 중...",
+        "stop": "중지",
+        "idle": "대기 중",
+        "err": "오류",
+        "need_tags": "태그를 입력하세요.",
+        "need_path": "저장 경로를 지정하세요.",
+        "bad_limit": "다운로드 수는 1 이상 정수여야 합니다.",
+        "bad_delay": "지연 시간은 0 이상의 숫자여야 합니다.",
+        "need_rating": "레이팅을 하나 이상 선택하세요.",
+        "need_category": "저장할 태그 항목을 하나 이상 선택하세요.",
+        "query_log": "검색: {query}",
+        "api_error": "API 오류: {error}",
+        "found": "대상 {total}개 확보",
+        "none": "대상 없음",
+        "result": "성공 {ok} / 실패 {fail}",
+        "fail_item": "[실패] {name}: {error}",
+        "counting": "'{tags}' 개수 조회 중...",
+        "count_result": "결과: {count:,}개",
+        "count_title": "조회 결과",
+        "count_body": "{tags}\n\n{count:,}개",
+        "count_fail": "조회 실패: {error}",
+        "done_title": "완료",
+        "end_title": "종료",
+    },
+    "en": {
+        "title": "Danbooru Downloader",
+        "search_settings": "Search Settings",
+        "include_tags": "Include Tags:",
+        "count": "Count",
+        "secondary_filter": "Secondary Filter:",
+        "ratings": "Ratings:",
+        "download_limit": "Download Limit:",
+        "delay": "Delay (sec):",
+        "naming": "Filename Rule:",
+        "save_settings": "Save Settings",
+        "save_path": "Save Path:",
+        "browse": "Browse",
+        "account": "Danbooru Account (optional):",
+        "save_txt": "Save tag .txt files for LoRA training",
+        "replace_underscores": "Replace _ with spaces in saved tags",
+        "tag_categories": "Tag categories to save:",
+        "download": "Download",
+        "downloading": "Downloading...",
+        "stop": "Stop",
+        "idle": "Idle",
+        "err": "Error",
+        "need_tags": "Enter tags.",
+        "need_path": "Choose a save path.",
+        "bad_limit": "Download limit must be a positive integer.",
+        "bad_delay": "Delay must be a number greater than or equal to 0.",
+        "need_rating": "Select at least one rating.",
+        "need_category": "Select at least one tag category.",
+        "query_log": "Search: {query}",
+        "api_error": "API error: {error}",
+        "found": "Found {total} target posts",
+        "none": "No targets",
+        "result": "Success {ok} / Failed {fail}",
+        "fail_item": "[Failed] {name}: {error}",
+        "counting": "Counting '{tags}'...",
+        "count_result": "Result: {count:,}",
+        "count_title": "Count Result",
+        "count_body": "{tags}\n\n{count:,} posts",
+        "count_fail": "Count failed: {error}",
+        "done_title": "Done",
+        "end_title": "Stopped",
+    },
+}
+
 
 def load_config():
     defaults = {
@@ -28,7 +127,7 @@ def load_config():
         "limit": 100, "ratings": ["g", "s"],
         "username": "", "api_key": "",
         "naming": "id", "save_txt": True, "replace_tag_underscores": True,
-        "tag_categories": ["general"], "delay": 0.5,
+        "tag_categories": ["general"], "delay": 0.5, "language": "ko",
     }
     if os.path.exists(CONFIG_FILE):
         try:
@@ -112,7 +211,7 @@ class DanbooruAPI:
 class Downloader:
     def __init__(self, api, tags, exclude, path, limit, ratings,
                  naming, save_txt, replace_tag_underscores, tag_categories,
-                 delay, log, progress, on_done):
+                 delay, language, log, progress, on_done):
         self.api = api
         self.tags = tags
         self.exclude = exclude
@@ -124,12 +223,16 @@ class Downloader:
         self.replace_tag_underscores = replace_tag_underscores
         self.tag_categories = tag_categories
         self.delay = delay
+        self.language = language
         self.log = log
         self.progress = progress
         self.on_done = on_done
         self.stop = False
         self.ok = 0
         self.fail = 0
+
+    def _t(self, key, **kwargs):
+        return TEXT[self.language][key].format(**kwargs)
 
     def build_query(self):
         parts = [t.strip() for t in re.split(r'[\s,]+', self.tags) if t.strip()]
@@ -162,7 +265,7 @@ class Downloader:
     def run(self):
         self.path.mkdir(parents=True, exist_ok=True)
         query = self.build_query()
-        self.log(f"검색: {query}")
+        self.log(self._t("query_log", query=query))
 
         # 포스트 수집 (페이지네이션)
         posts = []
@@ -173,7 +276,7 @@ class Downloader:
             try:
                 batch = self.api.search_posts(query, limit=need, page=page)
             except Exception as e:
-                self.log(f"API 오류: {e}", "ERROR")
+                self.log(self._t("api_error", error=e), "ERROR")
                 break
             if not batch:
                 break
@@ -191,9 +294,9 @@ class Downloader:
             time.sleep(1.0)
 
         total = len(posts)
-        self.log(f"대상 {total}개 확보")
+        self.log(self._t("found", total=total))
         if total == 0:
-            self.on_done(True, "대상 없음")
+            self.on_done(True, self._t("none"))
             return
 
         # 멀티스레드 다운로드
@@ -214,7 +317,7 @@ class Downloader:
                 done += 1
                 self.progress(done / total)
 
-        msg = f"성공 {self.ok} / 실패 {self.fail}"
+        msg = self._t("result", ok=self.ok, fail=self.fail)
         self.log(msg, "SUCCESS" if not self.stop else "WARNING")
         self.on_done(not self.stop, msg)
 
@@ -274,7 +377,7 @@ class Downloader:
                 time.sleep(self.delay)
             return ok
         except Exception as e:
-            self.log(f"[실패] {name}: {e}", "ERROR")
+            self.log(self._t("fail_item", name=name, error=e), "ERROR")
             if dest.exists():
                 dest.unlink(missing_ok=True)
             return False
@@ -317,7 +420,10 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.cfg = load_config()
-        self.title("Danbooru Downloader")
+        self.lang = self.cfg.get("language", "ko")
+        if self.lang not in TEXT:
+            self.lang = "ko"
+        self.title(self._t("title"))
         self.geometry("960x600")
         self.minsize(900, 560)
         self.configure(fg_color=self.BG)
@@ -330,6 +436,33 @@ class App(ctk.CTk):
         self._load_cfg()
         self.after(100, self._poll_log)
 
+    def _t(self, key, **kwargs):
+        return TEXT[self.lang][key].format(**kwargs)
+
+    def _change_language(self, label):
+        new_lang = LABEL_LANGS.get(label, "ko")
+        if new_lang == self.lang:
+            return
+        self._save_cfg()
+        self.lang = new_lang
+        self.cfg["language"] = self.lang
+        save_config(self.cfg)
+        for child in self.winfo_children():
+            child.destroy()
+        self.title(self._t("title"))
+        self._build_ui()
+        self._load_cfg()
+
+    def _naming_key(self):
+        value = self.m_naming.get()
+        if value in NAMING_VALUES[self.lang]:
+            return NAMING_VALUES[self.lang][value]
+        if "태그" in value or "Tags" in value:
+            return "tags_id"
+        if "원본" in value or "Original" in value:
+            return "original"
+        return "id"
+
     # ── UI 빌드 ──
 
     def _build_ui(self):
@@ -337,6 +470,15 @@ class App(ctk.CTk):
         hdr = ctk.CTkFrame(self, height=60, fg_color=self.CARD, corner_radius=10, border_width=1, border_color=self.BORDER)
         hdr.pack(fill="x", padx=12, pady=(12, 8))
         ctk.CTkLabel(hdr, text="DANBOORU DOWNLOADER", font=("Segoe UI", 20, "bold"), text_color="#fff").pack(side="left", padx=16, pady=10)
+        self.m_lang = ctk.CTkOptionMenu(hdr, values=list(LANG_LABELS.values()),
+                                        fg_color=self.INPUT, button_color=self.BORDER,
+                                        button_hover_color="#3e415b",
+                                        dropdown_fg_color=self.CARD,
+                                        dropdown_hover_color="#3e415b",
+                                        dropdown_text_color=self.TEXT,
+                                        height=30, width=110,
+                                        command=self._change_language)
+        self.m_lang.pack(side="right", padx=16, pady=10)
 
         # 본문 2단
         body = ctk.CTkFrame(self, fg_color="transparent")
@@ -353,7 +495,7 @@ class App(ctk.CTk):
         bot = ctk.CTkFrame(self, fg_color=self.CARD, corner_radius=10, border_width=1, border_color=self.BORDER)
         bot.pack(fill="both", expand=True, padx=12, pady=(8, 12))
 
-        self.status = ctk.CTkLabel(bot, text="대기 중", font=("Segoe UI", 11, "bold"), text_color=self.DIM)
+        self.status = ctk.CTkLabel(bot, text=self._t("idle"), font=("Segoe UI", 11, "bold"), text_color=self.DIM)
         self.status.pack(anchor="w", padx=12, pady=(8, 4))
 
         self.pbar = ctk.CTkProgressBar(bot, fg_color="#1f2937", progress_color=self.PURPLE, height=6)
@@ -376,22 +518,22 @@ class App(ctk.CTk):
         return ctk.CTkLabel(parent, text=text, font=("Segoe UI", 11, "bold"), text_color="#cbd5e1")
 
     def _build_left(self, f):
-        ctk.CTkLabel(f, text="🔍 검색 설정", font=("Segoe UI", 14, "bold"), text_color="#fff").pack(anchor="w", padx=12, pady=(12, 8))
+        ctk.CTkLabel(f, text=self._t("search_settings"), font=("Segoe UI", 14, "bold"), text_color="#fff").pack(anchor="w", padx=12, pady=(12, 8))
 
-        self._label(f, "포함 태그:").pack(anchor="w", padx=12)
+        self._label(f, self._t("include_tags")).pack(anchor="w", padx=12)
         row = ctk.CTkFrame(f, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(0, 8))
         self.e_tags = self._entry(row, "1girl solo long_hair")
         self.e_tags.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(row, text="개수 조회", width=70, height=30,
+        ctk.CTkButton(row, text=self._t("count"), width=70, height=30,
                        fg_color=self.BORDER, hover_color="#3e415b", text_color="#fff",
                        font=("Segoe UI", 11, "bold"), command=self._count).pack(side="right")
 
-        self._label(f, "2차 필터:").pack(anchor="w", padx=12)
+        self._label(f, self._t("secondary_filter")).pack(anchor="w", padx=12)
         self.e_exc = self._entry(f, "-comic -chibi cat_ears|dog_ears")
         self.e_exc.pack(fill="x", padx=12, pady=(0, 8))
 
-        self._label(f, "레이팅:").pack(anchor="w", padx=12)
+        self._label(f, self._t("ratings")).pack(anchor="w", padx=12)
         rf = ctk.CTkFrame(f, fg_color="transparent")
         rf.pack(fill="x", padx=12, pady=(0, 8))
         self.rv = {}
@@ -406,20 +548,20 @@ class App(ctk.CTk):
         
         col1 = ctk.CTkFrame(row2, fg_color="transparent")
         col1.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        self._label(col1, "다운로드 수:").pack(anchor="w")
+        self._label(col1, self._t("download_limit")).pack(anchor="w")
         self.e_limit = self._entry(col1)
         self.e_limit.pack(fill="x")
 
         col2 = ctk.CTkFrame(row2, fg_color="transparent")
         col2.pack(side="left", fill="x", expand=True, padx=(4, 4))
-        self._label(col2, "지연 시간(초):").pack(anchor="w")
+        self._label(col2, self._t("delay")).pack(anchor="w")
         self.e_delay = self._entry(col2, "0.5")
         self.e_delay.pack(fill="x")
 
         col3 = ctk.CTkFrame(row2, fg_color="transparent")
         col3.pack(side="right", fill="x", expand=True, padx=(4, 0))
-        self._label(col3, "파일명 규칙:").pack(anchor="w")
-        self.m_naming = ctk.CTkOptionMenu(col3, values=["ID만", "태그+ID", "원본 이름"],
+        self._label(col3, self._t("naming")).pack(anchor="w")
+        self.m_naming = ctk.CTkOptionMenu(col3, values=list(NAMING_LABELS[self.lang].values()),
                                            fg_color=self.INPUT, button_color=self.BORDER,
                                            button_hover_color="#3e415b",
                                            dropdown_fg_color=self.CARD,
@@ -428,18 +570,18 @@ class App(ctk.CTk):
         self.m_naming.pack(fill="x")
 
     def _build_right(self, f):
-        ctk.CTkLabel(f, text="💾 저장 설정", font=("Segoe UI", 14, "bold"), text_color="#fff").pack(anchor="w", padx=12, pady=(12, 8))
+        ctk.CTkLabel(f, text=self._t("save_settings"), font=("Segoe UI", 14, "bold"), text_color="#fff").pack(anchor="w", padx=12, pady=(12, 8))
 
-        self._label(f, "저장 경로:").pack(anchor="w", padx=12)
+        self._label(f, self._t("save_path")).pack(anchor="w", padx=12)
         row = ctk.CTkFrame(f, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(0, 8))
         self.e_path = self._entry(row)
         self.e_path.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(row, text="선택", width=60, height=30,
+        ctk.CTkButton(row, text=self._t("browse"), width=60, height=30,
                        fg_color=self.BORDER, hover_color="#3e415b", text_color="#fff",
                        command=self._browse_dir).pack(side="right")
 
-        self._label(f, "Danbooru 계정 (선택):").pack(anchor="w", padx=12)
+        self._label(f, self._t("account")).pack(anchor="w", padx=12)
         auth = ctk.CTkFrame(f, fg_color="transparent")
         auth.pack(fill="x", padx=12, pady=(0, 8))
         self.e_user = self._entry(auth, "Username")
@@ -449,21 +591,21 @@ class App(ctk.CTk):
         self.e_key.pack(side="right", fill="x", expand=True, padx=(4, 0))
 
         self.v_txt = ctk.StringVar(value="on")
-        self.cb_txt = ctk.CTkCheckBox(f, text="태그 .txt 파일 동시 저장 (Lora 학습용)",
+        self.cb_txt = ctk.CTkCheckBox(f, text=self._t("save_txt"),
                                       variable=self.v_txt, onvalue="on", offvalue="off",
                                       text_color=self.PURPLE, font=("Segoe UI", 11, "bold"),
                                       border_color=self.BORDER)
         self.cb_txt.pack(anchor="w", padx=12, pady=(0, 6))
 
         self.v_replace_underscores = ctk.StringVar(value="on")
-        self.cb_replace_underscores = ctk.CTkCheckBox(f, text="태그 저장 시 _ 를 공백으로 변환",
+        self.cb_replace_underscores = ctk.CTkCheckBox(f, text=self._t("replace_underscores"),
                                                       variable=self.v_replace_underscores,
                                                       onvalue="on", offvalue="off",
                                                       text_color="#cbd5e1", font=("Segoe UI", 11, "bold"),
                                                       border_color=self.BORDER)
         self.cb_replace_underscores.pack(anchor="w", padx=12, pady=(0, 6))
 
-        self._label(f, "저장할 태그 항목:").pack(anchor="w", padx=12)
+        self._label(f, self._t("tag_categories")).pack(anchor="w", padx=12)
         cat_row = ctk.CTkFrame(f, fg_color="transparent")
         cat_row.pack(fill="x", padx=12, pady=(0, 12))
         self.tag_cat_vars = {}
@@ -479,11 +621,11 @@ class App(ctk.CTk):
 
         btns = ctk.CTkFrame(f, fg_color="transparent")
         btns.pack(fill="x", padx=12, pady=(0, 12))
-        self.b_start = ctk.CTkButton(btns, text="⚡ 다운로드", font=("Segoe UI", 13, "bold"),
+        self.b_start = ctk.CTkButton(btns, text=self._t("download"), font=("Segoe UI", 13, "bold"),
                                       fg_color=self.PURPLE, hover_color="#9333ea",
                                       text_color="#fff", height=36, command=self._start)
         self.b_start.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        self.b_stop = ctk.CTkButton(btns, text="중지", font=("Segoe UI", 13, "bold"),
+        self.b_stop = ctk.CTkButton(btns, text=self._t("stop"), font=("Segoe UI", 13, "bold"),
                                      fg_color="#374151", hover_color=self.RED,
                                      text_color="#fff", height=36, state="disabled",
                                      command=self._stop)
@@ -493,6 +635,7 @@ class App(ctk.CTk):
 
     def _load_cfg(self):
         c = self.cfg
+        self.m_lang.set(LANG_LABELS.get(self.lang, LANG_LABELS["ko"]))
         self.e_tags.insert(0, c["tags"])
         self.e_exc.insert(0, c["exclude_tags"])
         self.e_path.insert(0, c["download_path"])
@@ -507,8 +650,7 @@ class App(ctk.CTk):
         selected_categories = set(c.get("tag_categories", ["general"]))
         for key, v in self.tag_cat_vars.items():
             v.set("on" if key in selected_categories else "off")
-        naming_map = {"id": "ID만", "tags_id": "태그+ID", "original": "원본 이름"}
-        self.m_naming.set(naming_map.get(c["naming"], "ID만"))
+        self.m_naming.set(NAMING_LABELS[self.lang].get(c["naming"], NAMING_LABELS[self.lang]["id"]))
 
     def _save_cfg(self):
         self.cfg.update({
@@ -523,7 +665,8 @@ class App(ctk.CTk):
             "save_txt": self.v_txt.get() == "on",
             "replace_tag_underscores": self.v_replace_underscores.get() == "on",
             "tag_categories": self._selected_tag_categories(),
-            "naming": "tags_id" if "태그" in self.m_naming.get() else ("original" if "원본" in self.m_naming.get() else "id"),
+            "naming": self._naming_key(),
+            "language": self.lang,
         })
         save_config(self.cfg)
 
@@ -558,19 +701,22 @@ class App(ctk.CTk):
     def _count(self):
         tags = self.e_tags.get().strip()
         if not tags:
-            messagebox.showerror("오류", "태그를 입력하세요.")
+            messagebox.showerror(self._t("err"), self._t("need_tags"))
             return
         threading.Thread(target=self._count_thread, args=(tags,), daemon=True).start()
 
     def _count_thread(self, tags):
-        self._log(f"'{tags}' 개수 조회 중...")
+        self._log(self._t("counting", tags=tags))
         try:
             api = DanbooruAPI(self.e_user.get().strip(), self.e_key.get().strip())
             n = api.count_posts(tags)
-            self._log(f"결과: {n:,}개", "SUCCESS")
-            self.after(0, lambda: messagebox.showinfo("조회 결과", f"{tags}\n\n{n:,}개"))
+            self._log(self._t("count_result", count=n), "SUCCESS")
+            self.after(0, lambda: messagebox.showinfo(
+                self._t("count_title"),
+                self._t("count_body", tags=tags, count=n),
+            ))
         except Exception as e:
-            self._log(f"조회 실패: {e}", "ERROR")
+            self._log(self._t("count_fail", error=e), "ERROR")
 
     # ── 다운로드 ──
 
@@ -579,26 +725,26 @@ class App(ctk.CTk):
             return
         path = self.e_path.get().strip()
         if not path:
-            messagebox.showerror("오류", "저장 경로를 지정하세요.")
+            messagebox.showerror(self._t("err"), self._t("need_path"))
             return
         try:
             limit = int(self.e_limit.get().strip() or "100")
             assert limit > 0
         except (ValueError, AssertionError):
-            messagebox.showerror("오류", "다운로드 수는 1 이상 정수여야 합니다.")
+            messagebox.showerror(self._t("err"), self._t("bad_limit"))
             return
         try:
             delay = float(self.e_delay.get().strip() or "0.5")
             assert delay >= 0
         except (ValueError, AssertionError):
-            messagebox.showerror("오류", "지연 시간은 0 이상의 숫자여야 합니다.")
+            messagebox.showerror(self._t("err"), self._t("bad_delay"))
             return
         ratings = [c for c in "gsqe" if self.rv[c].get() == "on"]
         if not ratings:
-            messagebox.showerror("오류", "레이팅을 하나 이상 선택하세요.")
+            messagebox.showerror(self._t("err"), self._t("need_rating"))
             return
         if self.v_txt.get() == "on" and not self._selected_tag_categories():
-            messagebox.showerror("오류", "저장할 태그 항목을 하나 이상 선택하세요.")
+            messagebox.showerror(self._t("err"), self._t("need_category"))
             return
 
         self._save_cfg()
@@ -613,11 +759,12 @@ class App(ctk.CTk):
             tags=self.e_tags.get().strip(),
             exclude=self.e_exc.get().strip(),
             path=path, limit=limit, ratings=ratings,
-            naming="tags_id" if "태그" in self.m_naming.get() else ("original" if "원본" in self.m_naming.get() else "id"),
+            naming=self._naming_key(),
             save_txt=self.v_txt.get() == "on",
             replace_tag_underscores=self.v_replace_underscores.get() == "on",
             tag_categories=self._selected_tag_categories(),
             delay=delay,
+            language=self.lang,
             log=self._log,
             progress=lambda v: self.after(0, lambda: self.pbar.set(v)),
             on_done=lambda ok, msg: self.after(0, lambda: self._done(ok, msg)),
@@ -635,9 +782,9 @@ class App(ctk.CTk):
         self.status.configure(text=msg)
         if ok:
             self.pbar.set(1.0)
-            messagebox.showinfo("완료", msg)
+            messagebox.showinfo(self._t("done_title"), msg)
         else:
-            messagebox.showwarning("종료", msg)
+            messagebox.showwarning(self._t("end_title"), msg)
         self.downloader = None
 
     def _set_running(self, on):
@@ -646,11 +793,11 @@ class App(ctk.CTk):
                   self.e_user, self.e_key, self.m_naming, self.cb_txt,
                   self.cb_replace_underscores, *self.tag_cat_checks):
             w.configure(state=s)
-        self.b_start.configure(state=s, text="다운로드 중..." if on else "⚡ 다운로드")
+        self.b_start.configure(state=s, text=self._t("downloading") if on else self._t("download"))
         self.b_stop.configure(state="normal" if on else "disabled")
         if on:
             self.pbar.set(0)
-            self.status.configure(text="다운로드 중...")
+            self.status.configure(text=self._t("downloading"))
 
     def _browse_dir(self):
         d = filedialog.askdirectory(initialdir=self.e_path.get())
