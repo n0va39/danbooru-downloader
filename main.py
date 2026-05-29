@@ -32,6 +32,22 @@ NAMING_VALUES = {
     for lang, labels in NAMING_LABELS.items()
 }
 
+DEFAULT_TAG_CATEGORY_ORDER = ["meta", "artist", "character", "copyright", "general"]
+TAG_CATEGORY_LABELS = {
+    "meta": "Meta",
+    "artist": "Artist",
+    "character": "Character",
+    "copyright": "Copyright",
+    "general": "General",
+}
+TAG_CATEGORY_KEYS = {
+    "meta": "tag_string_meta",
+    "artist": "tag_string_artist",
+    "character": "tag_string_character",
+    "copyright": "tag_string_copyright",
+    "general": "tag_string_general",
+}
+
 TEXT = {
     "ko": {
         "title": "Danbooru Downloader",
@@ -49,7 +65,7 @@ TEXT = {
         "account": "Danbooru 계정 (선택):",
         "save_txt": "태그 .txt 파일 동시 저장 (Lora 학습용)",
         "replace_underscores": "태그 저장 시 _ 를 공백으로 변환",
-        "tag_categories": "저장할 태그 항목:",
+        "tag_categories": "저장할 태그 항목 (드래그로 순서 변경):",
         "download": "다운로드",
         "downloading": "다운로드 중...",
         "stop": "중지",
@@ -74,6 +90,8 @@ TEXT = {
         "count_fail": "조회 실패: {error}",
         "done_title": "완료",
         "end_title": "종료",
+        "move_up": "위로",
+        "move_down": "아래로",
     },
     "en": {
         "title": "Danbooru Downloader",
@@ -91,7 +109,7 @@ TEXT = {
         "account": "Danbooru Account (optional):",
         "save_txt": "Save tag .txt files for LoRA training",
         "replace_underscores": "Replace _ with spaces in saved tags",
-        "tag_categories": "Tag categories to save:",
+        "tag_categories": "Tag categories to save (drag to reorder):",
         "download": "Download",
         "downloading": "Downloading...",
         "stop": "Stop",
@@ -116,6 +134,8 @@ TEXT = {
         "count_fail": "Count failed: {error}",
         "done_title": "Done",
         "end_title": "Stopped",
+        "move_up": "Move up",
+        "move_down": "Move down",
     },
 }
 
@@ -127,7 +147,9 @@ def load_config():
         "limit": 100, "ratings": ["g", "s"],
         "username": "", "api_key": "",
         "naming": "id", "save_txt": True, "replace_tag_underscores": True,
-        "tag_categories": ["general"], "delay": 0.5, "language": "ko",
+        "tag_categories": ["general"],
+        "tag_category_order": DEFAULT_TAG_CATEGORY_ORDER.copy(),
+        "delay": 0.5, "language": "ko",
     }
     if os.path.exists(CONFIG_FILE):
         try:
@@ -139,8 +161,11 @@ def load_config():
             if not has_tag_categories:
                 cfg["tag_categories"] = (
                     ["general"] if cfg.get("save_general_only", True)
-                    else ["meta", "artist", "copyright", "general"]
+                    else DEFAULT_TAG_CATEGORY_ORDER.copy()
                 )
+            cfg["tag_category_order"] = normalize_tag_category_order(
+                cfg.get("tag_category_order", DEFAULT_TAG_CATEGORY_ORDER)
+            )
             return cfg
         except Exception:
             pass
@@ -150,6 +175,12 @@ def load_config():
 def save_config(cfg):
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+def normalize_tag_category_order(order):
+    normalized = [key for key in order if key in DEFAULT_TAG_CATEGORY_ORDER]
+    normalized.extend(key for key in DEFAULT_TAG_CATEGORY_ORDER if key not in normalized)
+    return normalized
 
 
 def format_saved_tag(tag):
@@ -386,17 +417,11 @@ class Downloader:
         txt = img_path.with_suffix(".txt")
         if txt.exists():
             return
-        ordered_keys = [
-            ("meta", "tag_string_meta"),
-            ("artist", "tag_string_artist"),
-            ("copyright", "tag_string_copyright"),
-            ("general", "tag_string_general"),
-        ]
         selected = set(self.tag_categories)
         tags = []
-        for category, tag_key in ordered_keys:
-            if category in selected:
-                for tag in post.get(tag_key, "").split():
+        for category in self.tag_categories:
+            if category in selected and category in TAG_CATEGORY_KEYS:
+                for tag in post.get(TAG_CATEGORY_KEYS[category], "").split():
                     if self.replace_tag_underscores:
                         tag = format_saved_tag(tag)
                     tags.append(tag)
@@ -416,6 +441,8 @@ class App(ctk.CTk):
     RED = "#ef4444"
     TEXT = "#e2e8f0"
     DIM = "#94a3b8"
+    SELECTED = "#2a1f3d"
+    DRAGGING = "#3b275d"
 
     def __init__(self):
         super().__init__()
@@ -430,6 +457,7 @@ class App(ctk.CTk):
 
         self.dl_thread = None
         self.downloader = None
+        self.running = False
         self.log_q = queue.Queue()
 
         self._build_ui()
@@ -482,19 +510,22 @@ class App(ctk.CTk):
 
         # 본문 2단
         body = ctk.CTkFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=12, pady=4)
-        left = ctk.CTkFrame(body, fg_color=self.CARD, corner_radius=10, border_width=1, border_color=self.BORDER)
-        left.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        body.pack(fill="both", expand=True, padx=12, pady=(4, 12))
+        left_col = ctk.CTkFrame(body, fg_color="transparent")
+        left_col.pack(side="left", fill="both", expand=True, padx=(0, 6))
         right = ctk.CTkFrame(body, fg_color=self.CARD, corner_radius=10, border_width=1, border_color=self.BORDER)
         right.pack(side="right", fill="both", expand=True, padx=(6, 0))
 
+        left = ctk.CTkFrame(left_col, fg_color=self.CARD, corner_radius=10, border_width=1, border_color=self.BORDER)
+        left.pack(fill="x", padx=0, pady=(0, 8))
+        dl_status = ctk.CTkFrame(left_col, fg_color=self.CARD, corner_radius=10, border_width=1, border_color=self.BORDER)
+        dl_status.pack(fill="both", expand=True)
+
         self._build_left(left)
         self._build_right(right)
+        self._build_download_status(dl_status)
 
-        # 하단 콘솔
-        bot = ctk.CTkFrame(self, fg_color=self.CARD, corner_radius=10, border_width=1, border_color=self.BORDER)
-        bot.pack(fill="both", expand=True, padx=12, pady=(8, 12))
-
+    def _build_download_status(self, bot):
         self.status = ctk.CTkLabel(bot, text=self._t("idle"), font=("Segoe UI", 11, "bold"), text_color=self.DIM)
         self.status.pack(anchor="w", padx=12, pady=(8, 4))
 
@@ -606,18 +637,20 @@ class App(ctk.CTk):
         self.cb_replace_underscores.pack(anchor="w", padx=12, pady=(0, 6))
 
         self._label(f, self._t("tag_categories")).pack(anchor="w", padx=12)
-        cat_row = ctk.CTkFrame(f, fg_color="transparent")
-        cat_row.pack(fill="x", padx=12, pady=(0, 12))
+        self.cat_list = ctk.CTkFrame(f, fg_color="transparent")
+        self.cat_list.pack(fill="x", padx=12, pady=(0, 12))
         self.tag_cat_vars = {}
         self.tag_cat_checks = []
-        for key, label in [("meta", "Meta"), ("artist", "Artist"), ("copyright", "Copyright"), ("general", "General")]:
+        self.tag_cat_rows = {}
+        self.tag_cat_handles = {}
+        self.tag_cat_check_map = {}
+        self.tag_cat_move_buttons = {}
+        self.tag_category_order = DEFAULT_TAG_CATEGORY_ORDER.copy()
+        self.drag_category = None
+        for key in DEFAULT_TAG_CATEGORY_ORDER:
             v = ctk.StringVar(value="off")
             self.tag_cat_vars[key] = v
-            cb = ctk.CTkCheckBox(cat_row, text=label, variable=v, onvalue="on", offvalue="off",
-                                 text_color="#cbd5e1", font=("Segoe UI", 10),
-                                 border_color=self.BORDER)
-            cb.pack(side="left", expand=True)
-            self.tag_cat_checks.append(cb)
+        self._render_tag_category_rows()
 
         btns = ctk.CTkFrame(f, fg_color="transparent")
         btns.pack(fill="x", padx=12, pady=(0, 12))
@@ -630,6 +663,128 @@ class App(ctk.CTk):
                                      text_color="#fff", height=36, state="disabled",
                                      command=self._stop)
         self.b_stop.pack(side="right", fill="x", expand=True, padx=(4, 0))
+
+    def _render_tag_category_rows(self):
+        for child in self.cat_list.winfo_children():
+            child.destroy()
+        self.tag_cat_checks = []
+        self.tag_cat_rows = {}
+        self.tag_cat_handles = {}
+        self.tag_cat_check_map = {}
+        self.tag_cat_move_buttons = {}
+
+        for key in self.tag_category_order:
+            selected = self.tag_cat_vars[key].get() == "on"
+            dragging = key == self.drag_category
+            row_color = self.DRAGGING if dragging else (self.SELECTED if selected else self.INPUT)
+            border_color = self.PURPLE if selected or dragging else self.BORDER
+            row = ctk.CTkFrame(self.cat_list, fg_color=row_color, corner_radius=6,
+                               border_width=1, border_color=border_color)
+            row.pack(fill="x", pady=2)
+            handle = ctk.CTkLabel(row, text="::", width=24,
+                                  text_color=self.PURPLE if selected or dragging else self.DIM,
+                                  font=("Segoe UI", 12, "bold"))
+            handle.pack(side="left", padx=(8, 0), pady=4)
+            cb = ctk.CTkCheckBox(row, text=TAG_CATEGORY_LABELS[key],
+                                 variable=self.tag_cat_vars[key],
+                                 onvalue="on", offvalue="off",
+                                 text_color="#fff" if selected else "#cbd5e1",
+                                 font=("Segoe UI", 10, "bold" if selected else "normal"),
+                                 border_color=self.PURPLE if selected else self.BORDER,
+                                 command=self._refresh_tag_category_selection)
+            cb.pack(side="left", fill="x", expand=True, padx=8, pady=4)
+            up_btn = ctk.CTkButton(row, text="↑", width=28, height=24,
+                                   fg_color=self.BORDER, hover_color="#3e415b",
+                                   text_color="#fff",
+                                   command=lambda category=key: self._move_category_button(category, -1))
+            up_btn.pack(side="left", padx=(0, 4), pady=4)
+            down_btn = ctk.CTkButton(row, text="↓", width=28, height=24,
+                                     fg_color=self.BORDER, hover_color="#3e415b",
+                                     text_color="#fff",
+                                     command=lambda category=key: self._move_category_button(category, 1))
+            down_btn.pack(side="left", padx=(0, 8), pady=4)
+
+            for widget in (row, handle):
+                widget.bind("<ButtonPress-1>", lambda event, category=key: self._start_category_drag(category))
+                widget.bind("<B1-Motion>", self._move_category_drag)
+                widget.bind("<ButtonRelease-1>", self._finish_category_drag)
+
+            self.tag_cat_rows[key] = row
+            self.tag_cat_handles[key] = handle
+            self.tag_cat_check_map[key] = cb
+            self.tag_cat_move_buttons[key] = (up_btn, down_btn)
+            self.tag_cat_checks.append(cb)
+
+    def _refresh_tag_category_selection(self):
+        if not hasattr(self, "tag_cat_rows"):
+            return
+        for key, row in self.tag_cat_rows.items():
+            selected = self.tag_cat_vars[key].get() == "on"
+            dragging = key == self.drag_category
+            row.configure(
+                fg_color=self.DRAGGING if dragging else (self.SELECTED if selected else self.INPUT),
+                border_color=self.PURPLE if selected or dragging else self.BORDER,
+            )
+            self.tag_cat_handles[key].configure(text_color=self.PURPLE if selected or dragging else self.DIM)
+            self.tag_cat_check_map[key].configure(
+                text_color="#fff" if selected else "#cbd5e1",
+                font=("Segoe UI", 10, "bold" if selected else "normal"),
+                border_color=self.PURPLE if selected else self.BORDER,
+            )
+
+    def _move_category_button(self, category, delta):
+        if self.running:
+            return
+        idx = self.tag_category_order.index(category)
+        new_idx = max(0, min(len(self.tag_category_order) - 1, idx + delta))
+        if idx == new_idx:
+            return
+        self.tag_category_order.pop(idx)
+        self.tag_category_order.insert(new_idx, category)
+        self._pack_tag_category_rows()
+
+    def _start_category_drag(self, category):
+        if self.running:
+            return
+        self.drag_category = category
+        self._refresh_tag_category_selection()
+        self.bind_all("<B1-Motion>", self._move_category_drag)
+        self.bind_all("<ButtonRelease-1>", self._finish_category_drag)
+
+    def _move_category_drag(self, event):
+        if self.running or not self.drag_category:
+            return
+
+        target = len(self.tag_category_order) - 1
+        for idx, key in enumerate(self.tag_category_order):
+            row = self.tag_cat_rows[key]
+            midpoint = row.winfo_rooty() + (row.winfo_height() / 2)
+            if event.y_root < midpoint:
+                target = idx
+                break
+
+        category = self.drag_category
+        old = self.tag_category_order.index(category)
+        if target > old:
+            target -= 1
+        if target == old:
+            return
+
+        self.tag_category_order.pop(old)
+        self.tag_category_order.insert(target, category)
+        self._pack_tag_category_rows()
+
+    def _finish_category_drag(self, event):
+        if self.drag_category:
+            self.drag_category = None
+            self._refresh_tag_category_selection()
+        self.unbind_all("<B1-Motion>")
+        self.unbind_all("<ButtonRelease-1>")
+
+    def _pack_tag_category_rows(self):
+        for key in self.tag_category_order:
+            self.tag_cat_rows[key].pack_forget()
+            self.tag_cat_rows[key].pack(fill="x", pady=2)
 
     # ── 설정 로드/저장 ──
 
@@ -647,9 +802,13 @@ class App(ctk.CTk):
             self.rv[code].set("on" if code in c["ratings"] else "off")
         self.v_txt.set("on" if c["save_txt"] else "off")
         self.v_replace_underscores.set("on" if c.get("replace_tag_underscores", True) else "off")
+        self.tag_category_order = normalize_tag_category_order(
+            c.get("tag_category_order", DEFAULT_TAG_CATEGORY_ORDER)
+        )
         selected_categories = set(c.get("tag_categories", ["general"]))
         for key, v in self.tag_cat_vars.items():
             v.set("on" if key in selected_categories else "off")
+        self._render_tag_category_rows()
         self.m_naming.set(NAMING_LABELS[self.lang].get(c["naming"], NAMING_LABELS[self.lang]["id"]))
 
     def _save_cfg(self):
@@ -665,13 +824,14 @@ class App(ctk.CTk):
             "save_txt": self.v_txt.get() == "on",
             "replace_tag_underscores": self.v_replace_underscores.get() == "on",
             "tag_categories": self._selected_tag_categories(),
+            "tag_category_order": self.tag_category_order,
             "naming": self._naming_key(),
             "language": self.lang,
         })
         save_config(self.cfg)
 
     def _selected_tag_categories(self):
-        return [key for key in ("meta", "artist", "copyright", "general")
+        return [key for key in self.tag_category_order
                 if self.tag_cat_vars[key].get() == "on"]
 
     # ── 로깅 ──
@@ -788,11 +948,15 @@ class App(ctk.CTk):
         self.downloader = None
 
     def _set_running(self, on):
+        self.running = on
         s = "disabled" if on else "normal"
         for w in (self.e_tags, self.e_exc, self.e_limit, self.e_delay, self.e_path,
                   self.e_user, self.e_key, self.m_naming, self.cb_txt,
                   self.cb_replace_underscores, *self.tag_cat_checks):
             w.configure(state=s)
+        for buttons in self.tag_cat_move_buttons.values():
+            for button in buttons:
+                button.configure(state=s)
         self.b_start.configure(state=s, text=self._t("downloading") if on else self._t("download"))
         self.b_stop.configure(state="normal" if on else "disabled")
         if on:
