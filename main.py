@@ -65,6 +65,7 @@ TEXT = {
         "account": "Danbooru 계정 (선택):",
         "save_txt": "태그 .txt 파일 동시 저장 (Lora 학습용)",
         "replace_underscores": "태그 저장 시 _ 를 공백으로 변환",
+        "artist_prefix": "Artist 태그 접두사:",
         "tag_categories": "저장할 태그 항목 (드래그로 순서 변경):",
         "download": "다운로드",
         "downloading": "다운로드 중...",
@@ -109,6 +110,7 @@ TEXT = {
         "account": "Danbooru Account (optional):",
         "save_txt": "Save tag .txt files for LoRA training",
         "replace_underscores": "Replace _ with spaces in saved tags",
+        "artist_prefix": "Artist tag prefix:",
         "tag_categories": "Tag categories to save (drag to reorder):",
         "download": "Download",
         "downloading": "Downloading...",
@@ -147,6 +149,7 @@ def load_config():
         "limit": 100, "ratings": ["g", "s"],
         "username": "", "api_key": "",
         "naming": "id", "save_txt": True, "replace_tag_underscores": True,
+        "artist_prefix": "",
         "tag_categories": ["general"],
         "tag_category_order": DEFAULT_TAG_CATEGORY_ORDER.copy(),
         "delay": 0.5, "language": "ko",
@@ -242,7 +245,7 @@ class DanbooruAPI:
 class Downloader:
     def __init__(self, api, tags, exclude, path, limit, ratings,
                  naming, save_txt, replace_tag_underscores, tag_categories,
-                 delay, language, log, progress, on_done):
+                 artist_prefix, delay, language, log, progress, on_done):
         self.api = api
         self.tags = tags
         self.exclude = exclude
@@ -253,6 +256,7 @@ class Downloader:
         self.save_txt = save_txt
         self.replace_tag_underscores = replace_tag_underscores
         self.tag_categories = tag_categories
+        self.artist_prefix = artist_prefix
         self.delay = delay
         self.language = language
         self.log = log
@@ -424,6 +428,8 @@ class Downloader:
                 for tag in post.get(TAG_CATEGORY_KEYS[category], "").split():
                     if self.replace_tag_underscores:
                         tag = format_saved_tag(tag)
+                    if category == "artist" and self.artist_prefix:
+                        tag = f"{self.artist_prefix}{tag}"
                     tags.append(tag)
         tags = ", ".join(tags)
         txt.write_text(tags, encoding="utf-8")
@@ -451,8 +457,8 @@ class App(ctk.CTk):
         if self.lang not in TEXT:
             self.lang = "ko"
         self.title(self._t("title"))
-        self.geometry("960x600")
-        self.minsize(900, 560)
+        self.geometry("960x720")
+        self.minsize(900, 680)
         self.configure(fg_color=self.BG)
 
         self.dl_thread = None
@@ -636,6 +642,10 @@ class App(ctk.CTk):
                                                       border_color=self.BORDER)
         self.cb_replace_underscores.pack(anchor="w", padx=12, pady=(0, 6))
 
+        self._label(f, self._t("artist_prefix")).pack(anchor="w", padx=12)
+        self.e_artist_prefix = self._entry(f, "@")
+        self.e_artist_prefix.pack(fill="x", padx=12, pady=(0, 8))
+
         self._label(f, self._t("tag_categories")).pack(anchor="w", padx=12)
         self.cat_list = ctk.CTkFrame(f, fg_color="transparent")
         self.cat_list.pack(fill="x", padx=12, pady=(0, 12))
@@ -802,6 +812,7 @@ class App(ctk.CTk):
             self.rv[code].set("on" if code in c["ratings"] else "off")
         self.v_txt.set("on" if c["save_txt"] else "off")
         self.v_replace_underscores.set("on" if c.get("replace_tag_underscores", True) else "off")
+        self.e_artist_prefix.insert(0, c.get("artist_prefix", ""))
         self.tag_category_order = normalize_tag_category_order(
             c.get("tag_category_order", DEFAULT_TAG_CATEGORY_ORDER)
         )
@@ -823,6 +834,7 @@ class App(ctk.CTk):
             "api_key": self.e_key.get().strip(),
             "save_txt": self.v_txt.get() == "on",
             "replace_tag_underscores": self.v_replace_underscores.get() == "on",
+            "artist_prefix": self.e_artist_prefix.get(),
             "tag_categories": self._selected_tag_categories(),
             "tag_category_order": self.tag_category_order,
             "naming": self._naming_key(),
@@ -923,6 +935,7 @@ class App(ctk.CTk):
             save_txt=self.v_txt.get() == "on",
             replace_tag_underscores=self.v_replace_underscores.get() == "on",
             tag_categories=self._selected_tag_categories(),
+            artist_prefix=self.e_artist_prefix.get(),
             delay=delay,
             language=self.lang,
             log=self._log,
@@ -952,7 +965,7 @@ class App(ctk.CTk):
         s = "disabled" if on else "normal"
         for w in (self.e_tags, self.e_exc, self.e_limit, self.e_delay, self.e_path,
                   self.e_user, self.e_key, self.m_naming, self.cb_txt,
-                  self.cb_replace_underscores, *self.tag_cat_checks):
+                  self.cb_replace_underscores, self.e_artist_prefix, *self.tag_cat_checks):
             w.configure(state=s)
         for buttons in self.tag_cat_move_buttons.values():
             for button in buttons:
